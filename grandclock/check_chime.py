@@ -22,7 +22,7 @@ from scipy.signal import find_peaks
 credentials_file = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/credentials.json"
 
 # fs = 44100
-wav_file = '/Users/Matt/4pm.wav'
+wav_file = '/Users/Matt/chimes.wav'
 fs, data = wavfile.read(wav_file)
 
 
