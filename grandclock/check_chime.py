@@ -133,8 +133,10 @@ class PostToSheets:
 
 
 if __name__ == '__main__':
-    wav_file = sys.argv[0]
-
+    if len(sys.argv) > 1:
+        wav_file = os.path.abspath(f'{os.path.expanduser("~")}/{sys.argv[1]}')
+    else:
+        wav_file = os.path.abspath(f'{os.path.expanduser("~")}/chime.wav')
     # fs = 44100
     fs, data = wavfile.read(wav_file)
 
