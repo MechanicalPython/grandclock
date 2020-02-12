@@ -3,6 +3,8 @@ Read the wav file and get an array of amplitudes
 Take that array and find the peaks.
 Chimes are between 1 second to 0.7 seconds apart (at the max).
 
+If chimes are before the correct time, then it is minus. If after it is plus.
+
 Dependencies and assumptions.
 The input wav file will be of the 10 minutes around the hour and will not contain multiple hour chimes.
 """
@@ -29,41 +31,31 @@ def get_chime_times(data):
     create_time is when the file was created -> when the recording stops.
     :return: list of times (%Y-%m-%d %H:%M:%S) for chimes
     """
-    peaks = find_peaks(data, height=150, distance=fs / 2, prominence=1)
-
-    create_time = (os.path.getctime(wav_file))
+    peaks = find_peaks(data, height=300, distance=fs / 2, prominence=1)
+    create_time = (os.path.getmtime(wav_file))
     start_time = create_time - len(data) / fs
     times = [datetime.utcfromtimestamp(start_time + peak / fs) for peak in peaks[0]]
-
-    # Remove false data.
-    aim_hour = datetime.utcfromtimestamp(start_time).hour + 1
-    if aim_hour > 12:
-        aim_hour = aim_hour - 12
-
-    e = aim_hour
-    for s in range(0, len(times) - (aim_hour - 1)):
-        chunk = times[s: e]
-        dif = [j-i for i, j in zip(chunk[:-1], chunk[1:])]
-        if np.mean(dif) < timedelta(seconds=2):
-            # chunk = [time.strftime('%Y-%m-%d %H:%M:%S.%f') for time in chunk]
-            return chunk
-        e += 1
+    return times
 
 
 def extract_drift(chime_times):
     """Expects just the chime times, no noise"""
     first_chime = chime_times[0]
 
-    if first_chime.minute > 30:
-        actual_time = first_chime.hour + 1
+    if first_chime.minute > 30:  # The it is before the chime so add an hour to first chime hour.
+        actual_time = datetime(year=first_chime.year, month=first_chime.month, day=first_chime.day,
+                               hour=first_chime.hour + 1, minute=0, second=0, microsecond=0)
+        drift_direction = -1
     else:
-        actual_time = first_chime.hour
-    actual_time = timedelta(hours=actual_time)
-    first_chime = timedelta(hours=first_chime.hour, minutes=first_chime.minute, seconds=first_chime.second,
-                            microseconds=first_chime.microsecond)
+        actual_time = datetime(year=first_chime.year, month=first_chime.month, day=first_chime.day,
+                               hour=first_chime.hour, minute=0, second=0, microsecond=0)
+        drift_direction = 1
 
-    drift = first_chime - actual_time
-    return drift
+    drift = abs(actual_time - first_chime)
+    drift = drift.seconds
+    drift = drift * drift_direction
+
+    return drift, actual_time
 
 
 def compress_waveform(array, compression_rate):
@@ -139,7 +131,7 @@ if __name__ == '__main__':
         wav_file = os.path.abspath(f'{os.path.expanduser("~")}/chime.wav')
     # fs = 44100
     fs, data = wavfile.read(wav_file)
-
-    drift = extract_drift(get_chime_times(data))
-    PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data([[drift]])
+    drift, actual_time = extract_drift(get_chime_times(data))
+    actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
+    PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data([[actual_time, drift]])
 
