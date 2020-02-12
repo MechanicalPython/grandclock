@@ -31,7 +31,7 @@ def get_chime_times(data):
     create_time is when the file was created -> when the recording stops.
     :return: list of times (%Y-%m-%d %H:%M:%S) for chimes
     """
-    peaks = find_peaks(data, height=300, distance=fs / 2, prominence=1)
+    peaks = find_peaks(data, height=200, distance=fs / 2, prominence=1)
     create_time = (os.path.getmtime(wav_file))
     start_time = create_time - len(data) / fs
     times = [datetime.utcfromtimestamp(start_time + peak / fs) for peak in peaks[0]]
