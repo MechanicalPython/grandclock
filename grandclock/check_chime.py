@@ -19,11 +19,9 @@ from oauth2client.service_account import ServiceAccountCredentials
 from scipy.io import wavfile
 from scipy.signal import find_peaks
 
-credentials_file = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/credentials.json"
+import sys
 
-# fs = 44100
-wav_file = '/Users/Matt/chimes.wav'
-fs, data = wavfile.read(wav_file)
+credentials_file = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/credentials.json"
 
 
 def get_chime_times(data):
@@ -135,6 +133,11 @@ class PostToSheets:
 
 
 if __name__ == '__main__':
+    wav_file = sys.argv[0]
+
+    # fs = 44100
+    fs, data = wavfile.read(wav_file)
+
     drift = extract_drift(get_chime_times(data))
     PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data([[drift]])
 
