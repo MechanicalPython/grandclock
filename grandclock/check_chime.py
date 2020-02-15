@@ -144,11 +144,10 @@ if __name__ == '__main__':
         wav_file = os.path.abspath(f'{os.path.expanduser("~")}/chime.wav')
     # fs = 44100
     fs, data = wav_data(wav_file)
-    show_waveform(wav_file)
-    # if '-wf' in sys.argv:
-    #     show_waveform(data)
-    # else:
-    #     drift, actual_time = extract_drift(get_chime_times(data))
-    #     actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
-    #     PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data([[actual_time, drift]])
+    if '-wf' in sys.argv:
+        show_waveform(data)
+    else:
+        drift, actual_time = extract_drift(get_chime_times(data))
+        actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
+        PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data([[actual_time, drift]])
 
