@@ -7,6 +7,9 @@ If chimes are before the correct time, then it is minus. If after it is plus.
 
 Dependencies and assumptions.
 The input wav file will be of the 10 minutes around the hour and will not contain multiple hour chimes.
+
+For the chime archive, 20GB of free space, max of 100Mb sound files so assume 200 files can be archived.
+Only store ones where the
 """
 
 import os
@@ -24,6 +27,11 @@ from scipy.signal import find_peaks
 import sys
 
 credentials_file = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/credentials.json"
+
+
+def wav_data(file_path):
+    fs, data = wavfile.read(wav_file)
+    return fs, data
 
 
 def get_chime_times(data):
@@ -130,7 +138,7 @@ if __name__ == '__main__':
     else:
         wav_file = os.path.abspath(f'{os.path.expanduser("~")}/chime.wav')
     # fs = 44100
-    fs, data = wavfile.read(wav_file)
+    fs, data = wav_data(wav_file)
     drift, actual_time = extract_drift(get_chime_times(data))
     actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
     PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data([[actual_time, drift]])
