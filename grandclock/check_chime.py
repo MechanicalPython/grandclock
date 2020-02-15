@@ -80,10 +80,15 @@ def compress_waveform(array, compression_rate):
     return compressed_array
 
 
-def show_waveform(data):
+def show_waveform(file_path):
+    fs, data = wav_data(file_path)
+    peaks, peak_info = find_peaks(data, height=200, distance=fs / 2, prominence=1)
+
+    data = data[peaks[0] - 3*fs: (peaks[-1] + 3*fs)]
     x_axis = range(0, len(data))
     x_axis = [x / fs for x in x_axis]
     plt.plot(x_axis, data)
+    plt.axhline(200)
     plt.ylabel("Amplitude")
     plt.xlabel("Time (seconds)")
     plt.title("Waveform")
@@ -139,7 +144,11 @@ if __name__ == '__main__':
         wav_file = os.path.abspath(f'{os.path.expanduser("~")}/chime.wav')
     # fs = 44100
     fs, data = wav_data(wav_file)
-    drift, actual_time = extract_drift(get_chime_times(data))
-    actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
-    PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data([[actual_time, drift]])
+    show_waveform(wav_file)
+    # if '-wf' in sys.argv:
+    #     show_waveform(data)
+    # else:
+    #     drift, actual_time = extract_drift(get_chime_times(data))
+    #     actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
+    #     PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data([[actual_time, drift]])
 
