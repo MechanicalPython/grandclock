@@ -52,14 +52,12 @@ def extract_drift(chime_times):
     :return drift (seconds, negative is too fast), the aimed for time as datetime object.
     """
     first_chime = chime_times[0]
-
+    actual_time = datetime(year=first_chime.year, month=first_chime.month, day=first_chime.day,
+                           hour=first_chime.hour, minute=0, second=0, microsecond=0)
     if first_chime.minute > 30:  # The it is before the chime so add an hour to first chime hour.
-        actual_time = datetime(year=first_chime.year, month=first_chime.month, day=first_chime.day,
-                               hour=first_chime.hour + 1, minute=0, second=0, microsecond=0)  # Error here when time is midnight, hour = 23+1 which is not allowed.
+        actual_time = actual_time + timedelta(hours=1)
         drift_direction = -1
     else:
-        actual_time = datetime(year=first_chime.year, month=first_chime.month, day=first_chime.day,
-                               hour=first_chime.hour, minute=0, second=0, microsecond=0)
         drift_direction = 1
 
     drift = abs(actual_time - first_chime)
@@ -155,9 +153,7 @@ def main():
 
 
 if __name__ == '__main__':
-    # main()
-    wav_file = os.path.abspath(f'{os.path.expanduser("~")}/chime.wav')
-    chimes = [datetime(year=2020, month=2, day=24, hour=23, minute=59, second=00, microsecond=00)]
-    print(extract_drift(chimes))
+    main()
+
 
 
