@@ -30,29 +30,32 @@ credentials_file = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 
 
 def wav_data(file_path):
-    fs, data = wavfile.read(wav_file)
+    fs, data = wavfile.read(file_path)
     return fs, data
 
 
-def get_chime_times(data):
+def get_chime_times(wav_path):
     """Finds the peaks (1000 times base levels, 1 second around each peak)
     create_time is when the file was created -> when the recording stops.
-    :return: list of times (%Y-%m-%d %H:%M:%S) for chimes
+    :return: list of datetime objects for each chime
     """
+    fs, data = wav_data(wav_path)
     peaks = find_peaks(data, height=200, distance=fs / 2, prominence=1)
-    create_time = (os.path.getmtime(wav_file))
+    create_time = (os.path.getmtime(wav_path))
     start_time = create_time - len(data) / fs
     times = [datetime.utcfromtimestamp(start_time + peak / fs) for peak in peaks[0]]
     return times
 
 
 def extract_drift(chime_times):
-    """Expects just the chime times, no noise"""
+    """Expects just the chime times, no noise
+    :return drift (seconds, negative is too fast), the aimed for time as datetime object.
+    """
     first_chime = chime_times[0]
 
     if first_chime.minute > 30:  # The it is before the chime so add an hour to first chime hour.
         actual_time = datetime(year=first_chime.year, month=first_chime.month, day=first_chime.day,
-                               hour=first_chime.hour + 1, minute=0, second=0, microsecond=0)
+                               hour=first_chime.hour + 1, minute=0, second=0, microsecond=0)  # Error here when time is midnight, hour = 23+1 which is not allowed.
         drift_direction = -1
     else:
         actual_time = datetime(year=first_chime.year, month=first_chime.month, day=first_chime.day,
@@ -137,17 +140,24 @@ class PostToSheets:
             next_free_row += 1
 
 
-if __name__ == '__main__':
+def main():
     if len(sys.argv) > 1:
         wav_file = os.path.abspath(f'{os.path.expanduser("~")}/{sys.argv[1]}')
     else:
         wav_file = os.path.abspath(f'{os.path.expanduser("~")}/chime.wav')
     # fs = 44100
-    fs, data = wav_data(wav_file)
     if '-wf' in sys.argv:
-        show_waveform(data)
+        show_waveform(wav_file)
     else:
-        drift, actual_time = extract_drift(get_chime_times(data))
+        drift, actual_time = extract_drift(get_chime_times(wav_file))
         actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
         PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data([[actual_time, drift]])
+
+
+if __name__ == '__main__':
+    # main()
+    wav_file = os.path.abspath(f'{os.path.expanduser("~")}/chime.wav')
+    chimes = [datetime(year=2020, month=2, day=24, hour=23, minute=59, second=00, microsecond=00)]
+    print(extract_drift(chimes))
+
 
