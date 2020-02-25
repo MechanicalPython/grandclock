@@ -19,7 +19,6 @@ from datetime import datetime, timedelta
 
 import gspread
 import matplotlib.pyplot as plt
-import numpy as np
 from oauth2client.service_account import ServiceAccountCredentials
 from scipy.io import wavfile
 from scipy.signal import find_peaks
@@ -207,5 +206,8 @@ def main():
 
 if __name__ == '__main__':
     main()
-    # wa = WaveAnalysis(os.path.abspath(f'{os.path.expanduser("~")}/chime.wav'), height=200)
-    # print(wa.find_drift())
+    # for file in os.listdir(f'{os.path.expanduser("~")}/archive/'):
+    #
+    #     if file.endswith('.wav'):
+    #         wa = WaveAnalysis((f'{os.path.expanduser("~")}/archive/{file}'), height=200)
+    #         print(wa.find_drift())
