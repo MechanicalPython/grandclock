@@ -29,71 +29,126 @@ import sys
 credentials_file = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/credentials.json"
 
 
-def wav_data(file_path):
-    fs, data = wavfile.read(file_path)
-    return fs, data
+class WaveAnalysis:
+    def __init__(self, file_path, height=200):
+        self.height = height
+        self.file_path = file_path
+        self.fs, self.amplitude = wavfile.read(file_path)
+        self.start_time = self.get_start_time()
+        self.chime_time = self.get_chime_time()
+        self.number_of_chimes = self.get_number_of_chimes()
 
+    def get_start_time(self):
+        """Datetime object for the start of the sound recording"""
+        create_time = (os.path.getmtime(self.file_path))
+        start_time = create_time - len(self.amplitude) / self.fs
+        return datetime.utcfromtimestamp(start_time)
 
-def get_chime_times(wav_path):
-    """Finds the peaks (1000 times base levels, 1 second around each peak)
-    create_time is when the file was created -> when the recording stops.
-    :return: list of datetime objects for each chime
-    """
-    fs, data = wav_data(wav_path)
-    peaks = find_peaks(data, height=200, distance=fs / 2, prominence=1)
-    create_time = (os.path.getmtime(wav_path))
-    start_time = create_time - len(data) / fs
-    times = [datetime.utcfromtimestamp(start_time + peak / fs) for peak in peaks[0]]
-    return times
+    def get_chime_time(self):
+        """Gets the hour datetime for when the chime should be"""
+        actual_time = datetime(year=self.start_time.year, month=self.start_time.month, day=self.start_time.day,
+                               hour=self.start_time.hour, minute=0, second=0, microsecond=0)
+        if self.start_time.minute > 30:
+             actual_time = actual_time + timedelta(hours=1)
+        return actual_time
 
+    def get_number_of_chimes(self):
+        hour = int(self.chime_time.hour)
+        if hour > 12:
+            return hour - 12
+        else:
+            return hour
 
-def extract_drift(chime_times):
-    """Expects just the chime times, no noise
-    :return drift (seconds, negative is too fast), the aimed for time as datetime object.
-    """
-    first_chime = chime_times[0]
-    actual_time = datetime(year=first_chime.year, month=first_chime.month, day=first_chime.day,
-                           hour=first_chime.hour, minute=0, second=0, microsecond=0)
-    if first_chime.minute > 30:  # The it is before the chime so add an hour to first chime hour.
-        actual_time = actual_time + timedelta(hours=1)
-        drift_direction = -1
-    else:
-        drift_direction = 1
+    @staticmethod
+    def _mean_peak_diff(peaks):
+        peak_diff = [peaks[n] - peaks[n - 1] for n in range(1, len(peaks))]
+        mean_diff = (sum(peak_diff) / len(peak_diff))
+        return mean_diff
 
-    drift = abs(actual_time - first_chime)
-    drift = drift.seconds
-    drift = drift * drift_direction
+    def find_chimes(self):
+        """Finds the peaks (200 times base levels, 1 second around each peak)
+        create_time is when the file was created -> when the recording stops.
 
-    return drift, actual_time
+        Recursive search algorithm.
+        Start number = x
+        If too high, n+1 = x/2
+        If too low, new guess = x*2
+        if n+1
 
+        :return: list of datetime objects for each chime
+        """
+        too_high = None
+        too_low = None
+        while True:
 
-def compress_waveform(array, compression_rate):
-    """Compress x number of items into a single mean value
-    Not useful
-    """
-    compression_rate = int(compression_rate)
+            peaks, peaks_meta_data = find_peaks(self.amplitude, height=self.height, distance=self.fs / 2, prominence=1)
+            peaks = [peak/self.fs for peak in peaks]
+            if len(peaks) == self.number_of_chimes and self._mean_peak_diff(peaks) < 1.5:  # Correct peaks
+                return [self.start_time + timedelta(seconds=peak) for peak in peaks]
 
-    def chunks(l, n):
-        for i in range(0, len(l), n):
-            yield l[i:i + n]
+            elif len(peaks) > self.number_of_chimes:  # too many peaks, height is too low -> increase height
+                all_sub_peaks = []
 
-    compressed_array = [np.mean(chunk) for chunk in chunks(array, compression_rate)]
-    return compressed_array
+                for x in range(0, len(peaks) - self.number_of_chimes + 1):  # For each list slice of x length
+                    sub_peaks = peaks[x: x+self.number_of_chimes]
+                    if self._mean_peak_diff(sub_peaks) < 1.5:
+                        all_sub_peaks.append(sub_peaks)
 
+                # If there is just one sub_peak range that fits, use it.
+                if len(all_sub_peaks) == 1:
+                    peaks = all_sub_peaks[0]
+                    return [self.start_time + timedelta(seconds=peak) for peak in peaks]  # Correct peaks in there.
+                else:
+                    # height is too low.
+                    print('too low', self.height)
+                    too_low = self.height
+                    if too_high is None:
+                        self.height = self.height * 2
+                    else:
+                        self.height = int(((too_high - too_low) / 2) + too_low)
 
-def show_waveform(file_path):
-    fs, data = wav_data(file_path)
-    peaks, peak_info = find_peaks(data, height=200, distance=fs / 2, prominence=1)
+                    self.find_chimes()
 
-    data = data[peaks[0] - 3*fs: (peaks[-1] + 3*fs)]
-    x_axis = range(0, len(data))
-    x_axis = [x / fs for x in x_axis]
-    plt.plot(x_axis, data)
-    plt.axhline(200)
-    plt.ylabel("Amplitude")
-    plt.xlabel("Time (seconds)")
-    plt.title("Waveform")
-    plt.show()
+            elif len(peaks) < self.number_of_chimes:  # too few peaks -> reduce height
+                print('too high', self.height)
+                too_high = self.height
+                if too_low is None:
+                    self.height = self.height / 2
+                else:
+                    self.height = int(((too_high - too_low) / 2) + too_low)
+                self.find_chimes()
+
+            else:
+                raise RuntimeError('length of peaks is neither too big, too small or exactly correct. Check input.')
+
+    def find_drift(self):
+        """Expects just the chime times, no noise
+            :return drift (seconds, negative is too fast), the aimed for time as datetime object.
+        """
+        chimes = self.find_chimes()
+        first_chime = chimes[0]
+
+        if first_chime.minute > 30:  # The it is before the chime so add an hour to first chime hour.
+            drift_direction = -1
+        else:
+            drift_direction = 1
+
+        drift = abs(self.chime_time - first_chime)
+        drift = drift.seconds
+        drift = drift * drift_direction
+
+        return drift, self.chime_time
+
+    def show_waveform(self):
+        data = self.amplitude
+        x_axis = range(0, len(data))
+        x_axis = [x / self.fs for x in x_axis]
+        plt.plot(x_axis, data)
+        plt.axhline(self.height)
+        plt.ylabel("Amplitude")
+        plt.xlabel("Time (seconds)")
+        plt.title("Waveform")
+        plt.show()
 
 
 class PostToSheets:
@@ -144,16 +199,13 @@ def main():
     else:
         wav_file = os.path.abspath(f'{os.path.expanduser("~")}/chime.wav')
     # fs = 44100
-    if '-wf' in sys.argv:
-        show_waveform(wav_file)
-    else:
-        drift, actual_time = extract_drift(get_chime_times(wav_file))
-        actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
-        PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data([[actual_time, drift]])
+
+    drift, actual_time = WaveAnalysis(wav_file, height=200).find_drift()
+    actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
+    PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data([[actual_time, drift]])
 
 
 if __name__ == '__main__':
     main()
-
-
-
+    # wa = WaveAnalysis(os.path.abspath(f'{os.path.expanduser("~")}/chime.wav'), height=200)
+    # print(wa.find_drift())
