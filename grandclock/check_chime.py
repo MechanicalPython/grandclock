@@ -28,11 +28,10 @@ import sys
 
 credentials_file = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/credentials.json"
 
-sys.setrecursionlimit(30)
-
 
 class WaveAnalysis:
     def __init__(self, file_path, height=200):
+        sys.setrecursionlimit(30)
         self.height = height
         self.file_path = file_path
         self.fs, self.amplitude = wavfile.read(file_path)
@@ -117,7 +116,7 @@ class WaveAnalysis:
                     return [self.start_time + timedelta(seconds=peak) for peak in peaks]  # Correct peaks in there.
                 else:
                     # height is too low -> too many peaks -> increase threshold height.
-                    print('too low', self.height)
+                    # print('too low', self.height)
                     self.too_low = self.height
                     if self.too_high is None:
                         self.height = self.height * 2
@@ -128,7 +127,7 @@ class WaveAnalysis:
 
             # Too few peaks
             elif len(peaks) < self.number_of_chimes:  # too few peaks -> reduce height
-                print('too high', self.height)
+                # print('too high', self.height)
                 self.too_high = self.height
                 if self.too_low is None:
                     self.height = self.height / 2
@@ -138,13 +137,16 @@ class WaveAnalysis:
 
             # Reached when number of peaks = number of chimes but the peaks are not of the correct profile.
             else:
-                raise RuntimeError('length of peaks is neither too big, too small or exactly correct. Check input.')
+                return None
 
     def find_drift(self):
         """Expects just the chime times, no noise
             :return drift (seconds, negative is too fast), the aimed for time as datetime object.
         """
         chimes = self.find_chimes()
+        if chimes is None:
+            return None, self.chime_time
+
         first_chime = chimes[0]
 
         if first_chime.minute > 30:  # The it is before the chime so add an hour to first chime hour.
@@ -176,6 +178,7 @@ class PostToSheets:
     """
 
     def __init__(self, sheet_name, SHEET_ID):
+        sys.setrecursionlimit(1000)
         self.SCOPE = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']
         self.SHEET_ID = SHEET_ID
         self.creds = ServiceAccountCredentials.from_json_keyfile_name(credentials_file, self.SCOPE)
@@ -201,6 +204,8 @@ class PostToSheets:
         for row in data:
             column = 1
             for item in row:
+                if item is None:
+                    item = "=na()"
                 try:
                     self.sheet.update_cell(next_free_row, column, item)
                     time.sleep(1)
@@ -228,16 +233,14 @@ if __name__ == '__main__':
     # main()
     files = os.listdir(f'{os.path.expanduser("~")}/archive/')
     files.sort()
-    # 0:13 are good.
-    # 14:14+12 are not good (no values to even pick up.
     for file in files:
 
         if file.endswith('.wav'):
             print(file)
-            wa = WaveAnalysis((f'{os.path.expanduser("~")}/archive/{file}'), height=200)
-            try:
-                print(wa.find_drift()[0])
-            except RuntimeError:
-                print('No peaks.')
+            wa = WaveAnalysis(f'{os.path.expanduser("~")}/archive/{file}', height=200)
+            drift, actual_time = wa.find_drift()
+            actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
+            PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data(
+                [[actual_time, drift]])
 
 
