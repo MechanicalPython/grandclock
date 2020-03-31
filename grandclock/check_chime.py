@@ -16,6 +16,7 @@ import os
 import re
 import time
 from datetime import datetime, timedelta
+import sys
 
 import gspread
 import matplotlib.pyplot as plt
@@ -26,6 +27,8 @@ from scipy.signal import find_peaks
 import sys
 
 credentials_file = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/credentials.json"
+
+sys.setrecursionlimit(30)
 
 
 class WaveAnalysis:
@@ -133,6 +136,7 @@ class WaveAnalysis:
                     self.height = int(((self.too_high - self.too_low) / 2) + self.too_low)
                 self.find_chimes()
 
+            # Reached when number of peaks = number of chimes but the peaks are not of the correct profile.
             else:
                 raise RuntimeError('length of peaks is neither too big, too small or exactly correct. Check input.')
 
@@ -226,7 +230,7 @@ if __name__ == '__main__':
     files.sort()
     # 0:13 are good.
     # 14:14+12 are not good (no values to even pick up.
-    for file in files[15:]:
+    for file in files:
 
         if file.endswith('.wav'):
             print(file)
