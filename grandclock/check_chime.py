@@ -31,7 +31,6 @@ credentials_file = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 
 class WaveAnalysis:
     def __init__(self, file_path, height=200):
-        sys.setrecursionlimit(30)
         self.height = height
         self.file_path = file_path
         self.fs, self.amplitude = wavfile.read(file_path)
@@ -40,12 +39,14 @@ class WaveAnalysis:
         self.number_of_chimes = self.get_number_of_chimes()
         self.too_high = None
         self.too_low = None
+        self.recursion = 0
 
     def get_start_time(self):
         """Datetime object for the start of the sound recording"""
+        # Timezone and BST not accounted for. Always gives it as GMT.
         create_time = (os.path.getmtime(self.file_path))
         start_time = create_time - len(self.amplitude) / self.fs
-        return datetime.utcfromtimestamp(start_time)
+        return datetime.fromtimestamp(start_time)
 
     def get_chime_time(self):
         """Gets the hour datetime for when the chime should be"""
@@ -86,7 +87,9 @@ class WaveAnalysis:
         :return: list of datetime objects for each chime
         """
         while True:
-
+            self.recursion += 1
+            if self.recursion > 10:
+                return None
             peaks, peaks_meta_data = find_peaks(self.amplitude, height=self.height, distance=self.fs / 2, prominence=1)
             peaks = [peak/self.fs for peak in peaks]
 
@@ -178,7 +181,6 @@ class PostToSheets:
     """
 
     def __init__(self, sheet_name, SHEET_ID):
-        sys.setrecursionlimit(1000)
         self.SCOPE = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']
         self.SHEET_ID = SHEET_ID
         self.creds = ServiceAccountCredentials.from_json_keyfile_name(credentials_file, self.SCOPE)
@@ -230,17 +232,7 @@ def main():
 
 
 if __name__ == '__main__':
-    # main()
-    files = os.listdir(f'{os.path.expanduser("~")}/archive/')
-    files.sort()
-    for file in files:
+    main()
 
-        if file.endswith('.wav'):
-            print(file)
-            wa = WaveAnalysis(f'{os.path.expanduser("~")}/archive/{file}', height=200)
-            drift, actual_time = wa.find_drift()
-            actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
-            PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data(
-                [[actual_time, drift]])
 
 
