@@ -16,7 +16,6 @@ import os
 import re
 import time
 from datetime import datetime, timedelta
-import sys
 
 import gspread
 import matplotlib.pyplot as plt
