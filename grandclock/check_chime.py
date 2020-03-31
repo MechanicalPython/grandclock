@@ -36,6 +36,8 @@ class WaveAnalysis:
         self.start_time = self.get_start_time()
         self.chime_time = self.get_chime_time()
         self.number_of_chimes = self.get_number_of_chimes()
+        self.too_high = None
+        self.too_low = None
 
     def get_start_time(self):
         """Datetime object for the start of the sound recording"""
@@ -53,13 +55,18 @@ class WaveAnalysis:
 
     def get_number_of_chimes(self):
         hour = int(self.chime_time.hour)
-        if hour > 12:
+        if hour == 0:
+            return 12
+        elif hour > 12:
             return hour - 12
         else:
             return hour
 
     @staticmethod
     def _mean_peak_diff(peaks):
+        # If 1 chime, there is no valid peak difference so it's just 0.
+        if len(peaks) == 1:
+            return 0
         peak_diff = [peaks[n] - peaks[n - 1] for n in range(1, len(peaks))]
         mean_diff = (sum(peak_diff) / len(peak_diff))
         return mean_diff
@@ -76,19 +83,27 @@ class WaveAnalysis:
 
         :return: list of datetime objects for each chime
         """
-        too_high = None
-        too_low = None
         while True:
 
             peaks, peaks_meta_data = find_peaks(self.amplitude, height=self.height, distance=self.fs / 2, prominence=1)
             peaks = [peak/self.fs for peak in peaks]
+
+            # If correct number of peaks are present, go with that.
             if len(peaks) == self.number_of_chimes and self._mean_peak_diff(peaks) < 1.5:  # Correct peaks
                 return [self.start_time + timedelta(seconds=peak) for peak in peaks]
 
+            # -- Incorrect number of peaks are present.
+
+            # Too many peaks
             elif len(peaks) > self.number_of_chimes:  # too many peaks, height is too low -> increase height
                 all_sub_peaks = []
 
-                for x in range(0, len(peaks) - self.number_of_chimes + 1):  # For each list slice of x length
+                # If there are too many peaks, the correct peaks could be there, so for a moving window of peaks
+                # Look at each one and see if they fit the desired profile
+                # E.g. peaks = [10, 500,501,502,503] for 4pm.
+                # Look at [10, 500, 501, 502], incorrect, peaks too far apart.
+                # Look at [500, 501, 502, 503] correct, peaks fit the profile.
+                for x in range(0, len(peaks) - self.number_of_chimes + 1):  # For each moving window of sub-peaks.
                     sub_peaks = peaks[x: x+self.number_of_chimes]
                     if self._mean_peak_diff(sub_peaks) < 1.5:
                         all_sub_peaks.append(sub_peaks)
@@ -98,23 +113,24 @@ class WaveAnalysis:
                     peaks = all_sub_peaks[0]
                     return [self.start_time + timedelta(seconds=peak) for peak in peaks]  # Correct peaks in there.
                 else:
-                    # height is too low.
+                    # height is too low -> too many peaks -> increase threshold height.
                     print('too low', self.height)
-                    too_low = self.height
-                    if too_high is None:
+                    self.too_low = self.height
+                    if self.too_high is None:
                         self.height = self.height * 2
                     else:
-                        self.height = int(((too_high - too_low) / 2) + too_low)
+                        self.height = int(((self.too_high - self.too_low) / 2) + self.too_low)
 
                     self.find_chimes()
 
+            # Too few peaks
             elif len(peaks) < self.number_of_chimes:  # too few peaks -> reduce height
                 print('too high', self.height)
-                too_high = self.height
-                if too_low is None:
+                self.too_high = self.height
+                if self.too_low is None:
                     self.height = self.height / 2
                 else:
-                    self.height = int(((too_high - too_low) / 2) + too_low)
+                    self.height = int(((self.too_high - self.too_low) / 2) + self.too_low)
                 self.find_chimes()
 
             else:
@@ -205,9 +221,19 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
-    # for file in os.listdir(f'{os.path.expanduser("~")}/archive/'):
-    #
-    #     if file.endswith('.wav'):
-    #         wa = WaveAnalysis((f'{os.path.expanduser("~")}/archive/{file}'), height=200)
-    #         print(wa.find_drift())
+    # main()
+    files = os.listdir(f'{os.path.expanduser("~")}/archive/')
+    files.sort()
+    # 0:13 are good.
+    # 14:14+12 are not good (no values to even pick up.
+    for file in files[15:]:
+
+        if file.endswith('.wav'):
+            print(file)
+            wa = WaveAnalysis((f'{os.path.expanduser("~")}/archive/{file}'), height=200)
+            try:
+                print(wa.find_drift()[0])
+            except RuntimeError:
+                print('No peaks.')
+
+
