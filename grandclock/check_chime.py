@@ -237,6 +237,9 @@ def main():
         print(f"Error at {datetime.now()}: {me}")
         PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data(
             [[WaveAnalysis(wav_file, height=200).chime_time, "=na()"]])
+    except Exception as error:
+        print(f"Error at {datetime.now()}: {error}")
+
 
 # todo - add na() fields where there is a data gap.
 
