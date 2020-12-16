@@ -219,15 +219,26 @@ class PostToSheets:
 
 
 def main():
+
+    # todo Check current spreadsheet against archive or na()
+    # only keep wav files that are not uploaded? 
+
     if len(sys.argv) > 1:
         wav_file = os.path.abspath(f'{os.path.expanduser("~")}/{sys.argv[1]}')
     else:
         wav_file = os.path.abspath(f'{os.path.expanduser("~")}/chime.wav')
     # fs = 44100
 
-    drift, actual_time = WaveAnalysis(wav_file, height=200).find_drift()
-    actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
-    PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data([[actual_time, drift]])
+    try:
+        drift, actual_time = WaveAnalysis(wav_file, height=200).find_drift()
+        actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
+        PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data([[actual_time, drift]])
+    except MemoryError as me:
+        print(f"Error at {datetime.now()}: {me}")
+        PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data(
+            [[WaveAnalysis(wav_file, height=200).chime_time, "=na()"]])
+
+# todo - add na() fields where there is a data gap.
 
 
 if __name__ == '__main__':
