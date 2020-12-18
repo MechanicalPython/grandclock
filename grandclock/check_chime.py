@@ -205,14 +205,22 @@ class PostToSheets:
             for item in row:
                 if item is None:
                     item = "=na()"
-                try:
-                    self.sheet.update_cell(next_free_row, column, item)
-                    time.sleep(1)
-                except Exception as e:
-                    if re.search('"code": 429', str(e)):
-                        time.sleep(100)
+
+                def send_it(tries=0):
+                    try:
+                        self.sheet.update_cell(next_free_row, column, item)
+                        time.sleep(1.1)
+                        return True
+                    except gspread.exceptions.APIError as e:
+                        if tries < sys.getrecursionlimit() and (e.response.json())['error']['code'] == 429:
+                            print('hit limit. sleep and then try')
+                            time.sleep(501)
+                            send_it(tries+1)
+                    except Exception as e:
+                        print(e)
+
+                send_it()
                 column += 1
-                time.sleep(1.1)  # To avoid the 100 requests per 100 seconds limit
             next_free_row += 1
 
     def insert_na(self):
