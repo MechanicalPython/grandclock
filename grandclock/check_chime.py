@@ -46,7 +46,9 @@ class WaveAnalysis:
         return datetime.fromtimestamp(start_time)
 
     def get_chime_time(self):
-        """Gets the hour datetime for when the chime should be"""
+        """Gets the hour datetime for when the chime should be
+        :return datetime object
+        """
         actual_time = datetime(year=self.start_time.year, month=self.start_time.month, day=self.start_time.day,
                                hour=self.start_time.hour, minute=0, second=0, microsecond=0)
         if self.start_time.minute > 30:
@@ -281,17 +283,11 @@ def main():
         actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
         PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data(
             [[actual_time, drift]])
-    except MemoryError as me:
-        print(f"Error at {datetime.now()}: {me}")
-        PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data(
-            [[WaveAnalysis(wav_file, height=200).chime_time, "=na()"]])
     except Exception as error:
         print(f"Error at {datetime.now()}: {error}")
-
-
-# todo - add na() fields where there is a data gap.
+        wav_time = WaveAnalysis(wav_file).chime_time()
+        os.renames(wav_file, os.path.abspath(f'{os.path.expanduser("~")}/archive/{wav_time.strftime("%Y-%m-%d_%H")}.wav'))
 
 
 if __name__ == '__main__':
-    # main()
-    PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').insert_na()
+    main()
