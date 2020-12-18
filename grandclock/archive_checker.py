@@ -1,11 +1,11 @@
 """
-Removes files from the archive when the number exceeds 1 weeks worth of archive (almost 9GB and 168 items)
+Keep files where data failed to upload to the google sheet
 """
 
 import os
 
 
-def main():
+def remove_excess_files():
     archive = os.path.abspath(f'{os.path.expanduser("~")}/archive/')
     files = os.listdir(archive)
     files = [f for f in files if f.endswith('.wav')]
@@ -13,8 +13,14 @@ def main():
 
     if len(files) > 168:
         os.remove(f'{archive}/{files[0]}')
-        main()  # Calls itself recursively to ensure that only 168 files remain.
+        remove_excess_files()  # Calls itself recursively to ensure that only 168 files remain.
 
+
+def main():
+    """
+
+    :return:
+    """
 
 if __name__ == '__main__':
     main()

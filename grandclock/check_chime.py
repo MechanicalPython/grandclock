@@ -13,7 +13,7 @@ Only store ones where the
 """
 
 import os
-import re
+import sys
 import time
 from datetime import datetime, timedelta
 
@@ -22,8 +22,6 @@ import matplotlib.pyplot as plt
 from oauth2client.service_account import ServiceAccountCredentials
 from scipy.io import wavfile
 from scipy.signal import find_peaks
-
-import sys
 
 credentials_file = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/credentials.json"
 
@@ -52,7 +50,7 @@ class WaveAnalysis:
         actual_time = datetime(year=self.start_time.year, month=self.start_time.month, day=self.start_time.day,
                                hour=self.start_time.hour, minute=0, second=0, microsecond=0)
         if self.start_time.minute > 30:
-             actual_time = actual_time + timedelta(hours=1)
+            actual_time = actual_time + timedelta(hours=1)
         return actual_time
 
     def get_number_of_chimes(self):
@@ -90,7 +88,7 @@ class WaveAnalysis:
             if self.recursion > 10:
                 return None
             peaks, peaks_meta_data = find_peaks(self.amplitude, height=self.height, distance=self.fs / 2, prominence=1)
-            peaks = [peak/self.fs for peak in peaks]
+            peaks = [peak / self.fs for peak in peaks]
 
             # If correct number of peaks are present, go with that.
             if len(peaks) == self.number_of_chimes and self._mean_peak_diff(peaks) < 1.5:  # Correct peaks
@@ -108,7 +106,7 @@ class WaveAnalysis:
                 # Look at [10, 500, 501, 502], incorrect, peaks too far apart.
                 # Look at [500, 501, 502, 503] correct, peaks fit the profile.
                 for x in range(0, len(peaks) - self.number_of_chimes + 1):  # For each moving window of sub-peaks.
-                    sub_peaks = peaks[x: x+self.number_of_chimes]
+                    sub_peaks = peaks[x: x + self.number_of_chimes]
                     if self._mean_peak_diff(sub_peaks) < 1.5:
                         all_sub_peaks.append(sub_peaks)
 
@@ -217,8 +215,49 @@ class PostToSheets:
                 time.sleep(1.1)  # To avoid the 100 requests per 100 seconds limit
             next_free_row += 1
 
+    def insert_na(self):
+        """Insert missing na rows where data has been skipped for some reason
+        find the diff in time between each row
+
+        insert_row - index values is the row number you want to add in.
+
+        Move up the column. Stops the above rows from moving.
+        """
+
+        times = self.sheet.col_values(1)[1:]  # Simple list
+
+        times = [datetime.strptime(t, '%Y-%m-%d %H:%M:%S') for t in times]
+        index = [*range(2, len(times) + 2)]
+        times.reverse()
+        index.reverse()
+        times = dict(zip(index, times))
+
+        for i, t in times.items():  # +2 to get last item
+            n_1_time = times[i - 1]
+
+            diff = int((t - n_1_time).seconds / 3600)
+            for r in range(1, diff):
+                print(diff, i, t, r)
+
+                def send_it(tries=0):
+                    try:
+                        self.sheet.insert_row([(t - timedelta(hours=r)).strftime('%Y-%m-%d %H:%M:%S'), "=na()"], index=i,
+                                              value_input_option="USER_ENTERED")
+                        time.sleep(1.1)
+                        return True
+                    except gspread.exceptions.APIError as e:
+                        if tries < sys.getrecursionlimit() and (e.response.json())['error']['code'] == 429:
+                            print('hit limit. sleep and then try')
+                            time.sleep(501)
+                            send_it(tries+1)
+                    except Exception as e:
+                        print(e)
+
+                send_it()
+
 
 def main():
+    PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').insert_na()
 
     # todo Check current spreadsheet against archive or na()
     # only keep wav files that are not uploaded? 
@@ -232,7 +271,8 @@ def main():
     try:
         drift, actual_time = WaveAnalysis(wav_file, height=200).find_drift()
         actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
-        PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data([[actual_time, drift]])
+        PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data(
+            [[actual_time, drift]])
     except MemoryError as me:
         print(f"Error at {datetime.now()}: {me}")
         PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data(
@@ -245,7 +285,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
-
-
-
+    # main()
+    PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').insert_na()
