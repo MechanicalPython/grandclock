@@ -21,7 +21,8 @@ import gspread
 import matplotlib.pyplot as plt
 from oauth2client.service_account import ServiceAccountCredentials
 from scipy.io import wavfile
-from scipy.signal import find_peaks
+from scipy.signal import find_peaks, peak_prominences
+import numpy as np
 
 credentials_file = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/credentials.json"
 
@@ -30,13 +31,17 @@ class WaveAnalysis:
     def __init__(self, file_path, height=200):
         self.height = height
         self.file_path = file_path
-        self.fs, self.amplitude = wavfile.read(file_path)
+        self.fs, amplitude = wavfile.read(file_path)
+        self.amplitude = np.absolute(amplitude)
         self.start_time = self.get_start_time()
         self.chime_time = self.get_chime_time()
         self.number_of_chimes = self.get_number_of_chimes()
         self.too_high = None
         self.too_low = None
         self.recursion = 0
+        self.prominence_max = 300
+        self.peaks = []
+        self.exit_status = 'Success'
 
     def get_start_time(self):
         """Datetime object for the start of the sound recording"""
@@ -73,6 +78,9 @@ class WaveAnalysis:
         mean_diff = (sum(peak_diff) / len(peak_diff))
         return mean_diff
 
+    def _peak_to_times(self):
+        return [peak / self.fs for peak in self.peaks]
+
     def find_chimes(self):
         """Finds the peaks (200 times base levels, 1 second around each peak)
         create_time is when the file was created -> when the recording stops.
@@ -80,26 +88,36 @@ class WaveAnalysis:
         Recursive search algorithm.
         Start number = x
         If too high, n+1 = x/2
-        If too low, new guess = x*2
-        if n+1
+        If too low, n+1 = x*2
+
 
         :return: list of datetime objects for each chime
         """
         while True:
             self.recursion += 1
             if self.recursion > 10:
+                self.exit_status = "Recursion limit reached"
                 return None
-            peaks, peaks_meta_data = find_peaks(self.amplitude, height=self.height, distance=self.fs / 2, prominence=1)
-            peaks = [peak / self.fs for peak in peaks]
+                # # Have another go while reducing the prominence maximum.
+                # self.prominence_max -= 25
+                # if self.prominence_max <= 125:
+                #     return None
+                # self.recursion = 0
+                # self.find_chimes()
+
+            self.peaks, peaks_meta_data = find_peaks(self.amplitude, height=self.height,
+                                                     distance=int(self.fs / 2), prominence=[200, self.prominence_max])
 
             # If correct number of peaks are present, go with that.
-            if len(peaks) == self.number_of_chimes and self._mean_peak_diff(peaks) < 1.5:  # Correct peaks
-                return [self.start_time + timedelta(seconds=peak) for peak in peaks]
+            if len(self.peaks) == self.number_of_chimes and self._mean_peak_diff(
+                    self.peaks) < 1.5 * self.fs:
+                # Correct peaks
+                return [self.start_time + timedelta(seconds=peak) for peak in self._peak_to_times()]
 
             # -- Incorrect number of peaks are present.
 
             # Too many peaks
-            elif len(peaks) > self.number_of_chimes:  # too many peaks, height is too low -> increase height
+            elif len(self.peaks) > self.number_of_chimes:  # too many peaks, height is too low -> increase height
                 all_sub_peaks = []
 
                 # If there are too many peaks, the correct peaks could be there, so for a moving window of peaks
@@ -107,17 +125,18 @@ class WaveAnalysis:
                 # E.g. peaks = [10, 500,501,502,503] for 4pm.
                 # Look at [10, 500, 501, 502], incorrect, peaks too far apart.
                 # Look at [500, 501, 502, 503] correct, peaks fit the profile.
-                for x in range(0, len(peaks) - self.number_of_chimes + 1):  # For each moving window of sub-peaks.
-                    sub_peaks = peaks[x: x + self.number_of_chimes]
+                for x in range(0, len(self.peaks) - self.number_of_chimes + 1):  # For each moving window of sub-peaks.
+                    sub_peaks = self.peaks[x: x + self.number_of_chimes]
                     if self._mean_peak_diff(sub_peaks) < 1.5:
                         all_sub_peaks.append(sub_peaks)
 
                 # If there is just one sub_peak range that fits, use it.
                 if len(all_sub_peaks) == 1:
-                    peaks = all_sub_peaks[0]
-                    return [self.start_time + timedelta(seconds=peak) for peak in peaks]  # Correct peaks in there.
+                    self.peaks = all_sub_peaks[0]
+                    return [self.start_time + timedelta(seconds=peak) for peak in
+                            self._peak_to_times()]  # Correct peaks in there.
                 else:
-                    # height is too low -> too many peaks -> increase threshold height.
+                    # height is too low -> too many peaks -> increase minimum height.
                     # print('too low', self.height)
                     self.too_low = self.height
                     if self.too_high is None:
@@ -128,7 +147,7 @@ class WaveAnalysis:
                     self.find_chimes()
 
             # Too few peaks
-            elif len(peaks) < self.number_of_chimes:  # too few peaks -> reduce height
+            elif len(self.peaks) < self.number_of_chimes:  # too few peaks -> reduce height
                 # print('too high', self.height)
                 self.too_high = self.height
                 if self.too_low is None:
@@ -139,6 +158,7 @@ class WaveAnalysis:
 
             # Reached when number of peaks = number of chimes but the peaks are not of the correct profile.
             else:
+                self.exit_status = 'Number of peaks correct, wrong profile'
                 return None
 
     def find_drift(self):
@@ -163,11 +183,17 @@ class WaveAnalysis:
         return drift, self.chime_time
 
     def show_waveform(self):
+        """
+        Shows waveform for self.amplitude
+        :return:
+        """
         data = self.amplitude
         x_axis = range(0, len(data))
         x_axis = [x / self.fs for x in x_axis]
         plt.plot(x_axis, data)
         plt.axhline(self.height)
+        for p in self.peaks:
+            plt.axvline(p / self.fs, color="red", alpha=0.2)
         plt.ylabel("Amplitude")
         plt.xlabel("Time (seconds)")
         plt.title("Waveform")
@@ -217,7 +243,7 @@ class PostToSheets:
                         if tries < sys.getrecursionlimit() and (e.response.json())['error']['code'] == 429:
                             print('hit limit. sleep and then try')
                             time.sleep(501)
-                            send_it(tries+1)
+                            send_it(tries + 1)
                     except Exception as e:
                         print(e)
 
@@ -251,7 +277,8 @@ class PostToSheets:
 
                 def send_it(tries=0):
                     try:
-                        self.sheet.insert_row([(t - timedelta(hours=r)).strftime('%Y-%m-%d %H:%M:%S'), "=na()"], index=i,
+                        self.sheet.insert_row([(t - timedelta(hours=r)).strftime('%Y-%m-%d %H:%M:%S'), "=na()"],
+                                              index=i,
                                               value_input_option="USER_ENTERED")
                         time.sleep(1.1)
                         return True
@@ -259,7 +286,7 @@ class PostToSheets:
                         if tries < sys.getrecursionlimit() and (e.response.json())['error']['code'] == 429:
                             print('hit limit. sleep and then try')
                             time.sleep(501)
-                            send_it(tries+1)
+                            send_it(tries + 1)
                     except Exception as e:
                         print(e)
 
@@ -269,11 +296,9 @@ class PostToSheets:
 def main():
     PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').insert_na()
 
-    # todo Check current spreadsheet against archive or na()
-    # only keep wav files that are not uploaded? 
-
     if len(sys.argv) > 1:
         wav_file = os.path.abspath(f'{os.path.expanduser("~")}/{sys.argv[1]}')
+        print(wav_file)
     else:
         wav_file = os.path.abspath(f'{os.path.expanduser("~")}/chime.wav')
     # fs = 44100
@@ -283,11 +308,37 @@ def main():
         actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
         PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data(
             [[actual_time, drift]])
+        if drift == "=na()":
+            os.renames(wav_file,
+                       os.path.abspath(f'{os.path.expanduser("~")}/archive/{actual_time.strftime("%Y-%m-%d_%H")}.wav'))
     except Exception as error:
         print(f"Error at {datetime.now()}: {error}")
         wav_time = WaveAnalysis(wav_file).chime_time()
-        os.renames(wav_file, os.path.abspath(f'{os.path.expanduser("~")}/archive/{wav_time.strftime("%Y-%m-%d_%H")}.wav'))
+        os.renames(wav_file,
+                   os.path.abspath(f'{os.path.expanduser("~")}/archive/{wav_time.strftime("%Y-%m-%d_%H")}.wav'))
+
+
+# todo - problem where there is a blip with spikes. they are very short but large and
+# stops correct analysis.
+# prominence is the key to the blip problem. Blips are isolated and have high prominace.
+# Some way to reduce prominence when you need to.
+
+# 200s for successes.
+# Height at 0 when recursion is hit.
 
 
 if __name__ == '__main__':
-    main()
+    # main()
+    # w = WaveAnalysis('/Users/Matt/clock_archive/2020-12-17_15.wav', height=200)
+    # print(w.number_of_chimes)
+    # print(w.find_chimes())
+    # # w.show_waveform()
+
+    for file in os.listdir("/Users/Matt/clock_archive/"):
+        if not file.endswith(".wav"):
+            continue
+        w = WaveAnalysis(f"/Users/Matt/clock_archive/{file}", height=200)
+        w.find_chimes()
+        print(w.exit_status)
+        print(peak_prominences(w.amplitude, w.peaks)[0])
+        w.show_waveform()
