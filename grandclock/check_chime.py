@@ -275,9 +275,11 @@ class PostToSheets:
         """
 
         values = self._reverse_values()
-
         for i, t in values.items():
+            if i == 2:  # index 2 is the top item so n-1 time is not possible.
+                continue
             t = datetime.strptime(t[0], '%Y-%m-%d %H:%M:%S')
+
             n_1_time = datetime.strptime(values[i - 1][0], '%Y-%m-%d %H:%M:%S')
 
             diff = int((t - n_1_time).seconds / 3600)
