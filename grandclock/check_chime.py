@@ -331,7 +331,7 @@ class ArchiveManager:
             t = datetime.strptime(file.split(".")[0], '%Y-%m-%d_%H').strftime('%Y-%m-%d %H:%M:%S')
             if [t, "#N/A"] in values:
                 index = values.index([t, "#N/A"]) + 1  # +1 as sheet starts at 1, not 0.
-                drift = WaveAnalysis(f'{self.archive}{file}').find_drift()[0]
+                drift = WaveAnalysis(f'{self.archive}/{file}').find_drift()[0]
                 if drift is not None:
                     post_to_sheets.send_it(post_to_sheets.sheet.update_cell, limit=5, row=index, col=2, value=drift)
                     os.remove(f'{self.archive}/{file}')
