@@ -16,6 +16,7 @@ import os
 import sys
 import time
 from datetime import datetime, timedelta
+import gc
 
 import gspread
 import matplotlib.pyplot as plt
@@ -107,6 +108,7 @@ class WaveAnalysis:
         :return: list of datetime objects for each chime
         """
         while True:
+            gc.collect()
             self.recursion += 1
             if self.recursion > 10:
                 self.exit_status = "Recursion limit reached"
@@ -328,6 +330,7 @@ class ArchiveManager:
         values = post_to_sheets.sheet.get_all_values()
 
         for file in self.get_archive_files():
+            gc.collect()
             t = datetime.strptime(file.split(".")[0], '%Y-%m-%d_%H').strftime('%Y-%m-%d %H:%M:%S')
             if [t, "#N/A"] in values:
                 index = values.index([t, "#N/A"]) + 1  # +1 as sheet starts at 1, not 0.
@@ -374,7 +377,7 @@ def main():
     post.remove_blanks()
     post.remove_duplicates()
     post.insert_na()
-
+    gc.collect()
     archive_manager = ArchiveManager()
     archive_manager.find_and_update_from_archive()
     archive_manager.remove_excess_files()
