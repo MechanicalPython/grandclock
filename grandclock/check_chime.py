@@ -334,9 +334,9 @@ class ArchiveManager:
                 drift = WaveAnalysis(f'{self.archive}{file}').find_drift()[0]
                 if drift is not None:
                     post_to_sheets.send_it(post_to_sheets.sheet.update_cell, limit=5, row=index, col=2, value=drift)
-                    os.remove(f'{self.archive}{file}')
+                    os.remove(f'{self.archive}/{file}')
             else:
-                os.remove(f'{self.archive}{file}')
+                os.remove(f'{self.archive}/{file}')
 
     def save_data_to_archive(self, archive_file=f'{os.path.expanduser("~")}/clock_archive.txt'):
         """Saves new data to the json archive"""
