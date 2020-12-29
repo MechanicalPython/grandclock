@@ -19,28 +19,30 @@ from datetime import datetime, timedelta
 
 import gspread
 import matplotlib.pyplot as plt
+import numpy as np
 from oauth2client.service_account import ServiceAccountCredentials
 from scipy.io import wavfile
-from scipy.signal import find_peaks, peak_prominences
-import numpy as np
+from scipy.signal import find_peaks
 
 credentials_file = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/credentials.json"
+sheet_name = 'GrandfatherClock'
+sheet_id = '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI'
 
 
 class WaveAnalysis:
-    def __init__(self, file_path, height=200):
-        self.height = height
+    def __init__(self, file_path):
+        self.height = 100
         self.file_path = file_path
         self.fs, amplitude = wavfile.read(file_path)
         self.amplitude = np.absolute(amplitude)
         self.start_time = self.get_start_time()
         self.chime_time = self.get_chime_time()
         self.number_of_chimes = self.get_number_of_chimes()
-        self.too_high = None
-        self.too_low = None
+        self.max_height = np.max(self.amplitude)
+        self.min_height = 0
         self.recursion = 0
-        self.prominence_max = 300
-        self.peaks = []
+        self.prominence_max = 400
+        self.prominence_min = 100
         self.exit_status = 'Success'
 
     def get_start_time(self):
@@ -78,18 +80,29 @@ class WaveAnalysis:
         mean_diff = (sum(peak_diff) / len(peak_diff))
         return mean_diff
 
-    def _peak_to_times(self):
-        return [peak / self.fs for peak in self.peaks]
+    def _peak_to_times(self, peaks):
+        return
+
+    def search_range_for_fit(self, peaks, mean_peak_distance=1.5):
+        """
+
+        :param mean_peak_distance: mean distance between each peak in seconds.
+        :param peaks: list of peaks to look through to find a set with a small enough mean distance between peaks
+        :return: list of lists containing the ranges that fit the given profile
+        """
+        correct_profile_peaks = []
+        mean_peak_distance *= self.fs
+        for x in range(0, len(peaks) - self.number_of_chimes + 1):  # For each moving window of sub-peaks.
+            sub_range = peaks[x: x + self.number_of_chimes]
+            if self._mean_peak_diff(sub_range) < mean_peak_distance:
+                correct_profile_peaks.append(sub_range)
+
+        return correct_profile_peaks
 
     def find_chimes(self):
-        """Finds the peaks (200 times base levels, 1 second around each peak)
-        create_time is when the file was created -> when the recording stops.
-
-        Recursive search algorithm.
-        Start number = x
-        If too high, n+1 = x/2
-        If too low, n+1 = x*2
-
+        """
+        Start with broad conditions for finding peaks.
+        If there are too many peaks that fit the profile, then narrow the criteria until there is
 
         :return: list of datetime objects for each chime
         """
@@ -98,76 +111,44 @@ class WaveAnalysis:
             if self.recursion > 10:
                 self.exit_status = "Recursion limit reached"
                 return None
-                # # Have another go while reducing the prominence maximum.
-                # self.prominence_max -= 25
-                # if self.prominence_max <= 125:
-                #     return None
-                # self.recursion = 0
-                # self.find_chimes()
 
-            self.peaks, peaks_meta_data = find_peaks(self.amplitude, height=self.height,
-                                                     distance=int(self.fs / 2), prominence=[200, self.prominence_max])
-
+            peaks, peaks_meta_data = find_peaks(self.amplitude, height=self.height,
+                                                distance=int(self.fs / 2),
+                                                prominence=[self.prominence_min, self.prominence_max])
             # If correct number of peaks are present, go with that.
-            if len(self.peaks) == self.number_of_chimes and self._mean_peak_diff(
-                    self.peaks) < 1.5 * self.fs:
-                # Correct peaks
-                return [self.start_time + timedelta(seconds=peak) for peak in self._peak_to_times()]
+            correct_profile_peaks = self.search_range_for_fit(peaks, mean_peak_distance=1.5)
+            if len(correct_profile_peaks) == 1:
+                return correct_profile_peaks[0]  # Correct peaks in there.
 
-            # -- Incorrect number of peaks are present.
+            elif len(correct_profile_peaks) == 0:
+                # not captured any peaks so broaden the search, drop height, drop prom min and increase prom max
+                # Height is too high
+                self.max_height = self.height
+                self.height = (self.max_height - self.min_height) // 2
 
-            # Too many peaks
-            elif len(self.peaks) > self.number_of_chimes:  # too many peaks, height is too low -> increase height
-                all_sub_peaks = []
+                # Prominence
+                self.prominence_min -= self.prominence_min // 4
+                self.prominence_max += self.prominence_max // 4
 
-                # If there are too many peaks, the correct peaks could be there, so for a moving window of peaks
-                # Look at each one and see if they fit the desired profile
-                # E.g. peaks = [10, 500,501,502,503] for 4pm.
-                # Look at [10, 500, 501, 502], incorrect, peaks too far apart.
-                # Look at [500, 501, 502, 503] correct, peaks fit the profile.
-                for x in range(0, len(self.peaks) - self.number_of_chimes + 1):  # For each moving window of sub-peaks.
-                    sub_peaks = self.peaks[x: x + self.number_of_chimes]
-                    if self._mean_peak_diff(sub_peaks) < 1.5:
-                        all_sub_peaks.append(sub_peaks)
+            elif len(correct_profile_peaks) > 1:
+                # Captured too many peaks so narrow the criteria.
+                self.min_height = self.height
+                self.height = (self.max_height - self.min_height) * 2
 
-                # If there is just one sub_peak range that fits, use it.
-                if len(all_sub_peaks) == 1:
-                    self.peaks = all_sub_peaks[0]
-                    return [self.start_time + timedelta(seconds=peak) for peak in
-                            self._peak_to_times()]  # Correct peaks in there.
-                else:
-                    # height is too low -> too many peaks -> increase minimum height.
-                    # print('too low', self.height)
-                    self.too_low = self.height
-                    if self.too_high is None:
-                        self.height = self.height * 2
-                    else:
-                        self.height = int(((self.too_high - self.too_low) / 2) + self.too_low)
-
-                    self.find_chimes()
-
-            # Too few peaks
-            elif len(self.peaks) < self.number_of_chimes:  # too few peaks -> reduce height
-                # print('too high', self.height)
-                self.too_high = self.height
-                if self.too_low is None:
-                    self.height = self.height / 2
-                else:
-                    self.height = int(((self.too_high - self.too_low) / 2) + self.too_low)
-                self.find_chimes()
-
-            # Reached when number of peaks = number of chimes but the peaks are not of the correct profile.
-            else:
-                self.exit_status = 'Number of peaks correct, wrong profile'
-                return None
+                self.prominence_min += self.prominence_min // 4
+                self.prominence_max -= self.prominence_max // 4
 
     def find_drift(self):
         """Expects just the chime times, no noise
             :return drift (seconds, negative is too fast), the aimed for time as datetime object.
         """
-        chimes = self.find_chimes()
-        if chimes is None:
+        peaks = self.find_chimes()
+        if peaks is None:
             return None, self.chime_time
+
+        chimes = [peak / self.fs for peak in peaks]  # Convert raw peaks to relative seconds (0 - 10*60)
+        chimes = [self.start_time + timedelta(seconds=chime) for chime in
+                  chimes]  # Convert to actual time (10:55 - 11:05)
 
         first_chime = chimes[0]
 
@@ -182,17 +163,20 @@ class WaveAnalysis:
 
         return drift, self.chime_time
 
-    def show_waveform(self):
+    def show_waveform(self, peaks=list):
         """
         Shows waveform for self.amplitude
-        :return:
+        :param: peaks, list of peaks to highlight.
+        :return: None
         """
+        if peaks is None:
+            peaks = []
         data = self.amplitude
         x_axis = range(0, len(data))
         x_axis = [x / self.fs for x in x_axis]
         plt.plot(x_axis, data)
         plt.axhline(self.height)
-        for p in self.peaks:
+        for p in peaks:
             plt.axvline(p / self.fs, color="red", alpha=0.2)
         plt.ylabel("Amplitude")
         plt.xlabel("Time (seconds)")
@@ -211,6 +195,35 @@ class PostToSheets:
         self.creds = ServiceAccountCredentials.from_json_keyfile_name(credentials_file, self.SCOPE)
         self.client = gspread.authorize(self.creds)
         self.sheet = self.client.open(sheet_name).sheet1
+
+    def send_it(self, func, limit, *args, **kwargs):
+        """
+        Wrapper function for sending data to sheets, this will handle the try and except and the iteration
+        written as: self.send_it(self.sheet.method, limit=5, arg1=1, arg2=2, )
+        :param func:
+        :param limit:
+        :param args:
+        :param kwargs:
+        :return:
+        """
+        counter = 0
+        if counter > limit:
+            return False
+        counter += 1
+        try:
+            result = func(*args, **kwargs)
+            time.sleep(1.1)
+            return result
+        except gspread.exceptions.APIError as e:
+            if (e.response.json())['error']['code'] == 429:
+                time.sleep(501)
+                self.send_it(func, limit, *args, **kwargs)
+            else:
+                print(e)
+                return False
+        except Exception as e:
+            print(e)
+            return False
 
     def post_data(self, data):
         """
@@ -234,22 +247,23 @@ class PostToSheets:
                 if item is None:
                     item = "=na()"
 
-                def send_it(tries=0):
-                    try:
-                        self.sheet.update_cell(next_free_row, column, item)
-                        time.sleep(1.1)
-                        return True
-                    except gspread.exceptions.APIError as e:
-                        if tries < sys.getrecursionlimit() and (e.response.json())['error']['code'] == 429:
-                            print('hit limit. sleep and then try')
-                            time.sleep(501)
-                            send_it(tries + 1)
-                    except Exception as e:
-                        print(e)
-
-                send_it()
+                self.send_it(self.sheet.update_cell, limit=5, row=next_free_row, col=column, value=item)
                 column += 1
             next_free_row += 1
+
+    def _reverse_values(self, headers_to_skip=1):
+        """
+        Yields data going up the sheet:
+        [[col 1, col 2], [col 1, col 2], ... for each row]
+        :return: dict{index, [values]
+        """
+        result = self.send_it(self.sheet.get_all_values, limit=5)
+        result = result[headers_to_skip:]
+        index = [*range(2, len(result) + 2)]
+        result.reverse()
+        index.reverse()
+        data = dict(zip(index, result))
+        return data
 
     def insert_na(self):
         """Insert missing na rows where data has been skipped for some reason
@@ -260,41 +274,108 @@ class PostToSheets:
         Move up the column. Stops the above rows from moving.
         """
 
-        times = self.sheet.col_values(1)[1:]  # Simple list
+        values = self._reverse_values()
 
-        times = [datetime.strptime(t, '%Y-%m-%d %H:%M:%S') for t in times]
-        index = [*range(2, len(times) + 2)]
-        times.reverse()
-        index.reverse()
-        times = dict(zip(index, times))
-
-        for i, t in times.items():  # +2 to get last item
-            n_1_time = times[i - 1]
+        for i, t in values.items():
+            t = datetime.strptime(t[0], '%Y-%m-%d %H:%M:%S')
+            n_1_time = datetime.strptime(values[i - 1][0], '%Y-%m-%d %H:%M:%S')
 
             diff = int((t - n_1_time).seconds / 3600)
-            for r in range(1, diff):
-                print(diff, i, t, r)
+            for r in range(1, diff):  # Skips when diff if 1.
+                print(i, diff)
+                self.send_it(
+                    self.sheet.insert_row, limit=5,
+                    values=[(t - timedelta(hours=r)).strftime('%Y-%m-%d %H:%M:%S'), "=na()"],
+                    index=i,
+                    value_input_option="USER_ENTERED")
 
-                def send_it(tries=0):
-                    try:
-                        self.sheet.insert_row([(t - timedelta(hours=r)).strftime('%Y-%m-%d %H:%M:%S'), "=na()"],
-                                              index=i,
-                                              value_input_option="USER_ENTERED")
-                        time.sleep(1.1)
-                        return True
-                    except gspread.exceptions.APIError as e:
-                        if tries < sys.getrecursionlimit() and (e.response.json())['error']['code'] == 429:
-                            print('hit limit. sleep and then try')
-                            time.sleep(501)
-                            send_it(tries + 1)
-                    except Exception as e:
-                        print(e)
+    def remove_duplicates(self):
+        values = self._reverse_values()
+        for index, items in values.items():
+            if items[0] == '':
+                self.send_it(self.sheet.delete_row, limit=5, index=index)
 
-                send_it()
+    def remove_blanks(self):
+        values = self._reverse_values()
+        for index, times in values.items():
+            try:
+                datetime.strptime(times[0], '%Y-%m-%d %H:%M:%S')
+            except Exception:
+                self.send_it(self.sheet.delete_row, limit=5, index=index)
+
+
+class ArchiveManager:
+    def __init__(self, archive=os.path.abspath(f'{os.path.expanduser("~")}/archive/')):
+        self.archive = archive
+
+    def get_archive_files(self):
+        files = os.listdir(self.archive)
+        files = [f for f in files if f.endswith('.wav')]
+        files.sort()
+        return files
+
+    def remove_excess_files(self):
+        files = self.get_archive_files()
+
+        if len(files) > 168:
+            os.remove(f'{self.archive}/{files[0]}')
+            self.remove_excess_files()  # Calls itself recursively to ensure that only 168 files remain.
+
+    def find_and_update_from_archive(self):
+        post_to_sheets = PostToSheets(sheet_name, sheet_id)
+        values = post_to_sheets.sheet.get_all_values()
+
+        for file in self.get_archive_files():
+            t = datetime.strptime(file.split(".")[0], '%Y-%m-%d_%H').strftime('%Y-%m-%d %H:%M:%S')
+            if [t, "#N/A"] in values:
+                index = values.index([t, "#N/A"]) + 1  # +1 as sheet starts at 1, not 0.
+                drift = WaveAnalysis(f'{self.archive}{file}').find_drift()[0]
+                if drift is not None:
+                    post_to_sheets.send_it(post_to_sheets.sheet.update_cell, limit=5, row=index, col=2, value=drift)
+                    os.remove(f'{self.archive}{file}')
+            else:
+                os.remove(f'{self.archive}{file}')
+
+    def save_data_to_archive(self, archive_file=f'{os.path.expanduser("~")}/clock_archive.txt'):
+        """Saves new data to the json archive"""
+        post_to_sheets = PostToSheets(sheet_name, sheet_id)
+        values = post_to_sheets.sheet.get_all_values()[1:]  # Skip header.
+        if os.path.exists(archive_file) is False:
+            with open(archive_file, 'w') as f:
+                f.write("Aimed for time, Drift (seconds)\n")
+                values_as_string = '\n'.join([",".join(v) for v in values])
+                f.writelines(values_as_string)
+        else:
+            with open(archive_file, 'r') as f:
+                lines = f.readlines()
+                last_item = lines[-1].split(',')
+
+            with open(archive_file, 'a') as f:
+                for item in values[values.index(last_item)+1:]:
+                    f.write(f'{",".join(item)}\n')
+
+    def adjust_sheet_length(self):
+        """Keeps sheet to only 30 days worth of data"""
+        post_to_sheets = PostToSheets(sheet_name, sheet_id)
+        values = post_to_sheets.sheet.get_all_values()[1:]  # Skip header.
+        rows_to_remove = len(values) - (30 * 24)
+        for i in range(2, rows_to_remove + 2):  # +2 for header and index start at 1.
+            post_to_sheets.send_it(post_to_sheets.sheet.delete_row, limit=2, index=2)
 
 
 def main():
-    PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').insert_na()
+    """
+    Only keeps files that fail to upload real data.
+    :return:
+    """
+    post = PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI')
+    post.remove_blanks()
+    post.remove_duplicates()
+    post.insert_na()
+
+    archive_manager = ArchiveManager()
+    archive_manager.find_and_update_from_archive()
+    archive_manager.remove_excess_files()
 
     if len(sys.argv) > 1:
         wav_file = os.path.abspath(f'{os.path.expanduser("~")}/{sys.argv[1]}')
@@ -303,42 +384,22 @@ def main():
         wav_file = os.path.abspath(f'{os.path.expanduser("~")}/chime.wav')
     # fs = 44100
 
+    # Needs to 1. Find the latest value and update the sheet and the archive.
     try:
-        drift, actual_time = WaveAnalysis(wav_file, height=200).find_drift()
+        drift, actual_time = WaveAnalysis(wav_file).find_drift()
         actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
         PostToSheets('GrandfatherClock', '1cB5zOt3oJHepX2_pdfs69tnRl_HBlReSpetsAoc0jVI').post_data(
             [[actual_time, drift]])
-        if drift == "=na()":
-            os.renames(wav_file,
-                       os.path.abspath(f'{os.path.expanduser("~")}/archive/{actual_time.strftime("%Y-%m-%d_%H")}.wav'))
     except Exception as error:
         print(f"Error at {datetime.now()}: {error}")
-        wav_time = WaveAnalysis(wav_file).chime_time()
-        os.renames(wav_file,
-                   os.path.abspath(f'{os.path.expanduser("~")}/archive/{wav_time.strftime("%Y-%m-%d_%H")}.wav'))
+
+    archive_manager.save_data_to_archive()
+    archive_manager.adjust_sheet_length()
 
 
-# todo - problem where there is a blip with spikes. they are very short but large and
-# stops correct analysis.
-# prominence is the key to the blip problem. Blips are isolated and have high prominace.
-# Some way to reduce prominence when you need to.
-
-# 200s for successes.
-# Height at 0 when recursion is hit.
+# todo - remove clearly incorrect data points, more than 3 SDs from past 24 hours worth of data away from mean ish.
 
 
 if __name__ == '__main__':
-    # main()
-    # w = WaveAnalysis('/Users/Matt/clock_archive/2020-12-17_15.wav', height=200)
-    # print(w.number_of_chimes)
-    # print(w.find_chimes())
-    # # w.show_waveform()
+    main()
 
-    for file in os.listdir("/Users/Matt/clock_archive/"):
-        if not file.endswith(".wav"):
-            continue
-        w = WaveAnalysis(f"/Users/Matt/clock_archive/{file}", height=200)
-        w.find_chimes()
-        print(w.exit_status)
-        print(peak_prominences(w.amplitude, w.peaks)[0])
-        w.show_waveform()
