@@ -16,7 +16,6 @@ import os
 import sys
 import time
 from datetime import datetime, timedelta
-import gc
 
 import gspread
 import matplotlib.pyplot as plt
@@ -81,9 +80,6 @@ class WaveAnalysis:
         mean_diff = (sum(peak_diff) / len(peak_diff))
         return mean_diff
 
-    def _peak_to_times(self, peaks):
-        return
-
     def search_range_for_fit(self, peaks, mean_peak_distance=1.5):
         """
 
@@ -108,7 +104,6 @@ class WaveAnalysis:
         :return: list of datetime objects for each chime
         """
         while True:
-            gc.collect()
             self.recursion += 1
             if self.recursion > 10:
                 self.exit_status = "Recursion limit reached"
@@ -330,7 +325,6 @@ class ArchiveManager:
         values = post_to_sheets.sheet.get_all_values()
 
         for file in self.get_archive_files():
-            gc.collect()
             t = datetime.strptime(file.split(".")[0], '%Y-%m-%d_%H').strftime('%Y-%m-%d %H:%M:%S')
             if [t, "#N/A"] in values:
                 index = values.index([t, "#N/A"]) + 1  # +1 as sheet starts at 1, not 0.
@@ -377,7 +371,7 @@ def main():
     post.remove_blanks()
     post.remove_duplicates()
     post.insert_na()
-    gc.collect()
+
     archive_manager = ArchiveManager()
     archive_manager.find_and_update_from_archive()
     archive_manager.remove_excess_files()
@@ -387,7 +381,7 @@ def main():
         print(wav_file)
     else:
         wav_file = os.path.abspath(f'{os.path.expanduser("~")}/chime.wav')
-    # fs = 44100
+    # og fs = 44100
 
     # Needs to 1. Find the latest value and update the sheet and the archive.
     try:
@@ -408,3 +402,4 @@ def main():
 if __name__ == '__main__':
     main()
 
+# todo - problem was find_peak was taking up too much memory. either reduce lenght of recording or maybe reduce fs rate.
