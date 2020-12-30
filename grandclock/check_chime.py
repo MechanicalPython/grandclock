@@ -160,7 +160,7 @@ class WaveAnalysis:
 
         return drift, self.chime_time
 
-    def show_waveform(self, peaks=list):
+    def show_waveform(self, peaks=[]):
         """
         Shows waveform for self.amplitude
         :param: peaks, list of peaks to highlight.
@@ -383,7 +383,6 @@ def main():
         wav_file = os.path.abspath(f'{os.path.expanduser("~")}/chime.wav')
     # og fs = 44100
 
-    # Needs to 1. Find the latest value and update the sheet and the archive.
     try:
         drift, actual_time = WaveAnalysis(wav_file).find_drift()
         actual_time = actual_time.strftime('%Y-%m-%d %H:%M:%S.%f')
@@ -396,10 +395,6 @@ def main():
     archive_manager.adjust_sheet_length()
 
 
-# todo - remove clearly incorrect data points, more than 3 SDs from past 24 hours worth of data away from mean ish.
-
-
 if __name__ == '__main__':
     main()
 
-# todo - problem was find_peak was taking up too much memory. either reduce lenght of recording or maybe reduce fs rate.
