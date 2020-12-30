@@ -278,8 +278,7 @@ class PostToSheets:
             t = datetime.strptime(t[0], '%Y-%m-%d %H:%M:%S')
 
             n_1_time = datetime.strptime(values[i - 1][0], '%Y-%m-%d %H:%M:%S')
-
-            diff = int((t - n_1_time).seconds / 3600)
+            diff = int((t - n_1_time).total_seconds() / 3600)
             for r in range(1, diff):  # Skips when diff if 1.
                 print(i, diff)
                 self.send_it(
