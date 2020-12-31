@@ -358,7 +358,7 @@ class ArchiveManager:
         post_to_sheets = PostToSheets(sheet_name, sheet_id)
         values = post_to_sheets.sheet.get_all_values()[1:]  # Skip header.
         rows_to_remove = len(values) - (30 * 24)
-        post_to_sheets.send_it(post_to_sheets.sheet.delete_rows, limit=5, start_index=2, end_index=rows_to_remove)
+        post_to_sheets.send_it(post_to_sheets.sheet.delete_rows, limit=5, start_index=2, end_index=rows_to_remove+2)
 
 
 def main():
