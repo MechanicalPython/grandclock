@@ -349,7 +349,7 @@ class ArchiveManager:
                 last_item = lines[-1].split(',')
 
             with open(archive_file, 'a') as f:
-                for item in values[values.index(last_item)+1:]:
+                for item in values[f'{values.index(last_item)+1}\n':]:
                     f.write(f'{",".join(item)}\n')
 
     def adjust_sheet_length(self):
