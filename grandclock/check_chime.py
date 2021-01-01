@@ -280,7 +280,6 @@ class PostToSheets:
             n_1_time = datetime.strptime(values[i - 1][0], '%Y-%m-%d %H:%M:%S')
             diff = int((t - n_1_time).total_seconds() / 3600)
             for r in range(1, diff):  # Skips when diff if 1.
-                print(i, diff)
                 self.send_it(
                     self.sheet.insert_row, limit=5,
                     values=[(t - timedelta(hours=r)).strftime('%Y-%m-%d %H:%M:%S'), "=na()"],
@@ -289,9 +288,14 @@ class PostToSheets:
 
     def remove_duplicates(self):
         values = self._reverse_values()
-        for index, items in values.items():
-            if items[0] == '':
-                self.send_it(self.sheet.delete_row, limit=5, index=index)
+        for i, t in values.items():
+            if i == 2:  # index 2 is the top item so n-1 time is not possible.
+                continue
+            t = datetime.strptime(t[0], '%Y-%m-%d %H:%M:%S')
+            n_1_time = datetime.strptime(values[i - 1][0], '%Y-%m-%d %H:%M:%S')
+            diff = int((t - n_1_time).total_seconds() / 3600)
+            if diff == 0:
+                self.send_it(self.sheet.delete_row, limit=5, index=i)
 
     def remove_blanks(self):
         values = self._reverse_values()
@@ -322,7 +326,6 @@ class ArchiveManager:
     def find_and_update_from_archive(self):
         post_to_sheets = PostToSheets(sheet_name, sheet_id)
         values = post_to_sheets.sheet.get_all_values()
-
         for file in self.get_archive_files():
             t = datetime.strptime(file.split(".")[0], '%Y-%m-%d_%H').strftime('%Y-%m-%d %H:%M:%S')
             if [t, "#N/A"] in values:
@@ -346,20 +349,21 @@ class ArchiveManager:
         else:
             with open(archive_file, 'r') as f:
                 lines = f.readlines()
-                last_item = lines[-1].split(',')
-                last_item[1] = last_item[1].strip()
+                lines = [i.strip() for i in lines]
 
             with open(archive_file, 'a') as f:
-                for item in values[values.index(last_item)+1:]:  # for each item from last_item + 1 in values.
-                    f.write(f'{",".join(item)}\n')
+                for item in values:  # for each item from last_item + 1 in values.
+                    if item not in lines:
+                        f.write(f'{",".join(item)}\n')
 
     def adjust_sheet_length(self):
         """Keeps sheet to only 30 days worth of data"""
         post_to_sheets = PostToSheets(sheet_name, sheet_id)
         values = post_to_sheets.sheet.get_all_values()[1:]  # Skip header.
         rows_to_remove = len(values) - (30 * 24)
-        for i in range(2, rows_to_remove + 2):  # +2 for header and index start at 1.
-            post_to_sheets.send_it(post_to_sheets.sheet.delete_row, limit=2, index=2)
+        post_to_sheets.send_it(post_to_sheets.sheet.delete_rows, limit=3, start_index=2, end_index=rows_to_remove)
+        # for i in range(2, rows_to_remove + 2):  # +2 for header and index start at 1.
+        #     post_to_sheets.send_it(post_to_sheets.sheet.delete_row, limit=2, index=2)
 
 
 def main():
