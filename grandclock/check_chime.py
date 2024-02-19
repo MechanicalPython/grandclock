@@ -400,5 +400,12 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # main()
+    for file in os.listdir(os.path.abspath("/Users/Matt/archive/")):
+        if not file.endswith(".wav"):
+            continue
+        wav = WaveAnalysis(f'/Users/Matt/archive/{file}')
+        drift, time = wav.find_drift()
+        print("{} {} {}".format(file, drift, wav.height))
+
 
